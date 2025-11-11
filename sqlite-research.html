@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SQLite Database Research Tool</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        h1 {
+            color: #333;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #555;
+        }
+        input[type="text"], textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            box-sizing: border-box;
+        }
+        textarea {
+            font-family: 'Courier New', monospace;
+            min-height: 120px;
+            resize: vertical;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-top: 10px;
+            margin-right: 10px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        .info-button {
+            background-color: #2196F3;
+        }
+        .info-button:hover {
+            background-color: #0b7dda;
+        }
+        #status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            display: none;
+        }
+        #status.loading {
+            background-color: #fff3cd;
+            color: #856404;
+            display: block;
+        }
+        #status.success {
+            background-color: #d4edda;
+            color: #155724;
+            display: block;
+        }
+        #status.error {
+            background-color: #f8d7da;
+            color: #721c24;
+            display: block;
+        }
+        #results {
+            margin-top: 20px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+            background: white;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border: 1px solid #ddd;
+        }
+        th {
+            background-color: #4CAF50;
+            color: white;
+            font-weight: bold;
+        }
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        tr:hover {
+            background-color: #f5f5f5;
+        }
+        .example-queries {
+            background-color: #e7f3ff;
+            padding: 15px;
+            border-radius: 4px;
+            margin-top: 10px;
+        }
+        .example-queries h3 {
+            margin-top: 0;
+            color: #0066cc;
+        }
+        .example-query {
+            background: white;
+            padding: 8px;
+            margin: 5px 0;
+            border-radius: 3px;
+            cursor: pointer;
+            border: 1px solid #ccc;
+        }
+        .example-query:hover {
+            background-color: #f0f0f0;
+        }
+        .example-query code {
+            color: #d63384;
+        }
+    </style>
+</head>
+<body>
+    <h1>SQLite Database Research Tool</h1>
+
+    <div class="container">
+        <label for="dbUrl">Database URL:</label>
+        <input type="text" id="dbUrl" placeholder="https://example.com/path/to/database.db or local path">
+        <button onclick="loadDatabase()">Load Database</button>
+        <button onclick="showSchema()" class="info-button" id="schemaBtn" disabled>Show Schema</button>
+        <div id="status"></div>
+    </div>
+
+    <div class="container">
+        <label for="query">SQL Query:</label>
+        <textarea id="query" placeholder="SELECT * FROM table_name LIMIT 10;"></textarea>
+        <button onclick="executeQuery()" id="executeBtn" disabled>Execute Query</button>
+
+        <div class="example-queries">
+            <h3>Example Queries:</h3>
+            <div class="example-query" onclick="setQuery('SELECT name FROM sqlite_master WHERE type=\\'table\\';')">
+                <code>SELECT name FROM sqlite_master WHERE type='table';</code> - List all tables
+            </div>
+            <div class="example-query" onclick="setQuery('PRAGMA table_info(table_name);')">
+                <code>PRAGMA table_info(table_name);</code> - Show table structure (replace table_name)
+            </div>
+            <div class="example-query" onclick="setQuery('SELECT * FROM table_name LIMIT 10;')">
+                <code>SELECT * FROM table_name LIMIT 10;</code> - Show first 10 rows (replace table_name)
+            </div>
+        </div>
+    </div>
+
+    <div class="container" id="results"></div>
+
+    <script src="https://sql.js.org/dist/sql-wasm.js"></script>
+    <script type="module">
+        import { createDbWorker } from 'https://cdn.jsdelivr.net/npm/@sqlite.org/sqlite-wasm@3.47.0-build1/sqlite-wasm/jswasm/sqlite3-worker1-bundler-friendly.mjs';
+
+        let db = null;
+        let SQL = null;
+
+        // Initialize SQL.js
+        window.initSQL = async function() {
+            if (!SQL) {
+                SQL = await initSqlJs({
+                    locateFile: file => `https://sql.js.org/dist/${file}`
+                });
+            }
+        };
+
+        window.loadDatabase = async function() {
+            const url = document.getElementById('dbUrl').value.trim();
+            if (!url) {
+                showStatus('Please enter a database URL', 'error');
+                return;
+            }
+
+            showStatus('Loading database...', 'loading');
+
+            try {
+                await initSQL();
+
+                // Fetch the database file
+                const response = await fetch(url);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const arrayBuffer = await response.arrayBuffer();
+                const uint8Array = new Uint8Array(arrayBuffer);
+
+                // Close previous database if exists
+                if (db) {
+                    db.close();
+                }
+
+                // Create new database
+                db = new SQL.Database(uint8Array);
+
+                showStatus('Database loaded successfully!', 'success');
+                document.getElementById('executeBtn').disabled = false;
+                document.getElementById('schemaBtn').disabled = false;
+            } catch (error) {
+                showStatus(`Error loading database: ${error.message}`, 'error');
+                console.error(error);
+            }
+        };
+
+        window.executeQuery = function() {
+            if (!db) {
+                showStatus('Please load a database first', 'error');
+                return;
+            }
+
+            const query = document.getElementById('query').value.trim();
+            if (!query) {
+                showStatus('Please enter a query', 'error');
+                return;
+            }
+
+            try {
+                showStatus('Executing query...', 'loading');
+                const results = db.exec(query);
+                displayResults(results);
+                showStatus('Query executed successfully!', 'success');
+            } catch (error) {
+                showStatus(`Query error: ${error.message}`, 'error');
+                console.error(error);
+            }
+        };
+
+        window.showSchema = function() {
+            if (!db) {
+                showStatus('Please load a database first', 'error');
+                return;
+            }
+
+            try {
+                showStatus('Fetching schema...', 'loading');
+                const query = "SELECT type, name, sql FROM sqlite_master WHERE sql NOT NULL ORDER BY type, name;";
+                const results = db.exec(query);
+                displayResults(results);
+                showStatus('Schema retrieved successfully!', 'success');
+            } catch (error) {
+                showStatus(`Error fetching schema: ${error.message}`, 'error');
+                console.error(error);
+            }
+        };
+
+        window.setQuery = function(query) {
+            document.getElementById('query').value = query;
+        };
+
+        function displayResults(results) {
+            const resultsDiv = document.getElementById('results');
+
+            if (!results || results.length === 0) {
+                resultsDiv.innerHTML = '<p>Query executed successfully but returned no results.</p>';
+                return;
+            }
+
+            let html = '';
+
+            results.forEach((result, idx) => {
+                if (results.length > 1) {
+                    html += `<h3>Result Set ${idx + 1}</h3>`;
+                }
+
+                html += '<div style="overflow-x: auto;">';
+                html += '<table>';
+
+                // Header
+                html += '<tr>';
+                result.columns.forEach(col => {
+                    html += `<th>${escapeHtml(col)}</th>`;
+                });
+                html += '</tr>';
+
+                // Rows
+                result.values.forEach(row => {
+                    html += '<tr>';
+                    row.forEach(cell => {
+                        const cellValue = cell === null ? '<em>NULL</em>' : escapeHtml(String(cell));
+                        html += `<td>${cellValue}</td>`;
+                    });
+                    html += '</tr>';
+                });
+
+                html += '</table>';
+                html += '</div>';
+                html += `<p><strong>Rows:</strong> ${result.values.length}</p>`;
+            });
+
+            resultsDiv.innerHTML = html;
+        }
+
+        function showStatus(message, type) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.textContent = message;
+            statusDiv.className = type;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Initialize on page load
+        initSQL();
+    </script>
+</body>
+</html>
