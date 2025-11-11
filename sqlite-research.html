@@ -181,9 +181,8 @@
 
     <div class="container" id="results"></div>
 
-    <script src="https://cdn.jsdelivr.net/npm/sql.js-httpvfs@0.8.12/dist/index.js"></script>
-    <script>
-        const { createDbWorker } = window.sqlHttpvfs;
+    <script type="module">
+        import { createDbWorker } from "https://cdn.jsdelivr.net/npm/sql.js-httpvfs@0.8.12/dist/index.js";
 
         let workerPromise = null;
         let db = null;
