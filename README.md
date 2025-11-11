@@ -2,14 +2,16 @@
 
 A simple HTML/JavaScript tool for querying SQLite databases directly in the browser or via Cloudflare Workers.
 
-## Static Web Page (sql.js)
+## Static Web Page (sql.js-httpvfs)
 
 ### Features
-- Load SQLite databases from URLs
+- Load SQLite databases from URLs using HTTP VFS
+- **Efficient range requests** - Only fetches needed parts of the database, not the entire file
 - Execute SQL queries directly in the browser
 - View database schema
 - No backend required - runs entirely client-side
 - Clean, responsive UI
+- Works with large databases without loading them entirely into memory
 
 ### Usage
 
@@ -18,7 +20,7 @@ A simple HTML/JavaScript tool for querying SQLite databases directly in the brow
 2. **Load a database**:
    - Enter the URL of your SQLite database file
    - Click "Load Database"
-   - The database will be downloaded and loaded into memory
+   - The database will be loaded using HTTP VFS (only needed parts are fetched)
 
 3. **Execute queries**:
    - Enter your SQL query in the text area
@@ -52,10 +54,18 @@ You can also test with publicly available SQLite databases:
 - Chinook Database: `https://github.com/lerocha/chinook-database/raw/master/ChinookDatabase/DataSources/Chinook_Sqlite.sqlite`
 - Or host your own database file on any static file server
 
+### How HTTP VFS Works
+
+The tool uses `sql.js-httpvfs` which implements a Virtual File System that uses HTTP range requests. This means:
+- Only the database pages needed for your queries are fetched
+- Much more efficient for large databases
+- Initial connection is fast as the full database isn't downloaded
+- Queries fetch data on-demand using HTTP range requests
+
 ### Limitations
-- The entire database is loaded into browser memory
-- Large databases may be slow or fail to load
+- Requires the web server to support HTTP range requests (most do)
 - Read-only (no writes persist)
+- CORS must be enabled on the server hosting the database
 
 ---
 
@@ -268,14 +278,16 @@ Create an HTML file that connects to your Worker:
 
 ## Comparison
 
-| Feature | Static Page (sql.js) | Cloudflare Worker |
-|---------|---------------------|-------------------|
+| Feature | Static Page (sql.js-httpvfs) | Cloudflare Worker |
+|---------|------------------------------|-------------------|
 | Setup Complexity | Very simple | Moderate |
-| Database Size | Limited by browser memory | Up to 10GB (D1) |
-| Performance | Client-side processing | Server-side processing |
+| Database Size | Supports large databases via HTTP VFS | Up to 10GB (D1) |
+| Performance | Client-side with lazy loading | Server-side processing |
+| Data Transfer | Only fetches needed pages | Full server processing |
 | Cost | Free | Free tier available |
 | Persistence | Read-only | Read/Write supported |
-| Hosting | Any static host | Cloudflare |
+| Hosting | Any static host with range request support | Cloudflare |
+| CORS Required | Yes | No (same origin) |
 
 ## Security Notes
 

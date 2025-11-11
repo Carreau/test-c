@@ -148,7 +148,9 @@
         <button onclick="loadDefaultDB()" class="info-button">Load Sample DB</button>
         <div id="status"></div>
         <p style="margin-top: 10px; color: #666; font-size: 14px;">
-            <strong>Note:</strong> The sample database will load automatically. It contains employees, products, and orders data.
+            <strong>Note:</strong> The sample database will load automatically using HTTP VFS with range requests.
+            This means only the needed parts of the database are fetched, not the entire file.
+            The database contains employees, products, and orders data.
         </p>
     </div>
 
@@ -179,19 +181,34 @@
 
     <div class="container" id="results"></div>
 
-    <script src="https://sql.js.org/dist/sql-wasm.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sql.js-httpvfs@0.8.12/dist/index.js"></script>
     <script>
-        let db = null;
-        let SQL = null;
+        const { createDbWorker } = window.sqlHttpvfs;
 
-        // Initialize SQL.js
-        window.initSQL = async function() {
-            if (!SQL) {
-                SQL = await initSqlJs({
-                    locateFile: file => `https://sql.js.org/dist/${file}`
-                });
+        let workerPromise = null;
+        let db = null;
+
+        // Initialize the worker
+        async function initWorker() {
+            if (!workerPromise) {
+                showStatus('Initializing database worker...', 'loading');
+                workerPromise = createDbWorker(
+                    [
+                        {
+                            from: "inline",
+                            config: {
+                                serverMode: "full",
+                                url: "/sample.db",
+                                requestChunkSize: 4096,
+                            }
+                        }
+                    ],
+                    "https://cdn.jsdelivr.net/npm/sql.js-httpvfs@0.8.12/dist/sqlite.worker.js",
+                    "https://cdn.jsdelivr.net/npm/sql.js-httpvfs@0.8.12/dist/sql-wasm.wasm"
+                );
             }
-        };
+            return workerPromise;
+        }
 
         window.loadDatabase = async function() {
             const url = document.getElementById('dbUrl').value.trim();
@@ -200,29 +217,29 @@
                 return;
             }
 
-            showStatus('Loading database...', 'loading');
+            showStatus('Loading database via HTTP VFS (using range requests)...', 'loading');
 
             try {
-                await initSQL();
+                // Recreate worker with new URL
+                workerPromise = null;
+                workerPromise = createDbWorker(
+                    [
+                        {
+                            from: "inline",
+                            config: {
+                                serverMode: "full",
+                                url: url,
+                                requestChunkSize: 4096,
+                            }
+                        }
+                    ],
+                    "https://cdn.jsdelivr.net/npm/sql.js-httpvfs@0.8.12/dist/sqlite.worker.js",
+                    "https://cdn.jsdelivr.net/npm/sql.js-httpvfs@0.8.12/dist/sql-wasm.wasm"
+                );
 
-                // Fetch the database file
-                const response = await fetch(url);
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
+                db = await workerPromise;
 
-                const arrayBuffer = await response.arrayBuffer();
-                const uint8Array = new Uint8Array(arrayBuffer);
-
-                // Close previous database if exists
-                if (db) {
-                    db.close();
-                }
-
-                // Create new database
-                db = new SQL.Database(uint8Array);
-
-                showStatus('Database loaded successfully!', 'success');
+                showStatus('Database loaded successfully via HTTP VFS! Only requested data will be fetched.', 'success');
                 document.getElementById('executeBtn').disabled = false;
                 document.getElementById('schemaBtn').disabled = false;
             } catch (error) {
@@ -231,7 +248,7 @@
             }
         };
 
-        window.executeQuery = function() {
+        window.executeQuery = async function() {
             if (!db) {
                 showStatus('Please load a database first', 'error');
                 return;
@@ -245,7 +262,7 @@
 
             try {
                 showStatus('Executing query...', 'loading');
-                const results = db.exec(query);
+                const results = await db.db.exec(query);
                 displayResults(results);
                 showStatus('Query executed successfully!', 'success');
             } catch (error) {
@@ -254,7 +271,7 @@
             }
         };
 
-        window.showSchema = function() {
+        window.showSchema = async function() {
             if (!db) {
                 showStatus('Please load a database first', 'error');
                 return;
@@ -263,7 +280,7 @@
             try {
                 showStatus('Fetching schema...', 'loading');
                 const query = "SELECT type, name, sql FROM sqlite_master WHERE sql NOT NULL ORDER BY type, name;";
-                const results = db.exec(query);
+                const results = await db.db.exec(query);
                 displayResults(results);
                 showStatus('Schema retrieved successfully!', 'success');
             } catch (error) {
@@ -339,7 +356,6 @@
 
         // Initialize on page load and auto-load sample database
         async function initPage() {
-            await initSQL();
             // Auto-load the sample database
             setTimeout(() => {
                 loadDatabase();
