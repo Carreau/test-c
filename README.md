@@ -28,9 +28,27 @@ A simple HTML/JavaScript tool for querying SQLite databases directly in the brow
 4. **View schema**:
    - Click "Show Schema" to see all tables, views, and indexes
 
-### Example Databases
+### Testing with the Sample Database
 
-You can test with publicly available SQLite databases:
+This repository includes a sample database (`sample.db`) with business data for testing:
+
+**Tables:**
+- `employees` - 10 employees with departments, salaries, and hire dates
+- `products` - 10 products with categories, prices, and stock levels
+- `orders` - 8 sample orders linked to employees
+- `order_items` - 14 order line items
+
+**To test locally:**
+1. Open `sqlite-research.html` in a browser
+2. Use the file path: `file:///path/to/sample.db` or serve it via a local web server
+3. See `SAMPLE_QUERIES.md` for example queries to try
+
+**To test via HTTP:**
+Host the `sample.db` file on a static server and use the full URL.
+
+### Other Example Databases
+
+You can also test with publicly available SQLite databases:
 - Chinook Database: `https://github.com/lerocha/chinook-database/raw/master/ChinookDatabase/DataSources/Chinook_Sqlite.sqlite`
 - Or host your own database file on any static file server
 
