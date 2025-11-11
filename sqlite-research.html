@@ -142,10 +142,14 @@
 
     <div class="container">
         <label for="dbUrl">Database URL:</label>
-        <input type="text" id="dbUrl" placeholder="https://example.com/path/to/database.db or local path">
+        <input type="text" id="dbUrl" value="sample.db" placeholder="https://example.com/path/to/database.db or local path">
         <button onclick="loadDatabase()">Load Database</button>
         <button onclick="showSchema()" class="info-button" id="schemaBtn" disabled>Show Schema</button>
+        <button onclick="loadDefaultDB()" class="info-button">Load Sample DB</button>
         <div id="status"></div>
+        <p style="margin-top: 10px; color: #666; font-size: 14px;">
+            <strong>Note:</strong> The sample database will load automatically. It contains employees, products, and orders data.
+        </p>
     </div>
 
     <div class="container">
@@ -154,15 +158,21 @@
         <button onclick="executeQuery()" id="executeBtn" disabled>Execute Query</button>
 
         <div class="example-queries">
-            <h3>Example Queries:</h3>
+            <h3>Example Queries (for sample.db):</h3>
             <div class="example-query" onclick="setQuery('SELECT name FROM sqlite_master WHERE type=\\'table\\';')">
                 <code>SELECT name FROM sqlite_master WHERE type='table';</code> - List all tables
             </div>
-            <div class="example-query" onclick="setQuery('PRAGMA table_info(table_name);')">
-                <code>PRAGMA table_info(table_name);</code> - Show table structure (replace table_name)
+            <div class="example-query" onclick="setQuery('SELECT * FROM employees;')">
+                <code>SELECT * FROM employees;</code> - Show all employees
             </div>
-            <div class="example-query" onclick="setQuery('SELECT * FROM table_name LIMIT 10;')">
-                <code>SELECT * FROM table_name LIMIT 10;</code> - Show first 10 rows (replace table_name)
+            <div class="example-query" onclick="setQuery('SELECT * FROM products WHERE price < 100;')">
+                <code>SELECT * FROM products WHERE price < 100;</code> - Products under $100
+            </div>
+            <div class="example-query" onclick="setQuery('SELECT e.first_name || \\' \\' || e.last_name as name, e.department, o.total_amount\\nFROM employees e\\nJOIN orders o ON e.id = o.employee_id\\nORDER BY o.total_amount DESC;')">
+                <code>SELECT ... FROM employees JOIN orders ...</code> - Employee orders with totals
+            </div>
+            <div class="example-query" onclick="setQuery('SELECT department, AVG(salary) as avg_salary\\nFROM employees\\nGROUP BY department\\nORDER BY avg_salary DESC;')">
+                <code>SELECT ... GROUP BY department</code> - Average salary by department
             </div>
         </div>
     </div>
@@ -323,8 +333,22 @@
             return div.innerHTML;
         }
 
-        // Initialize on page load
-        initSQL();
+        // Load default sample database
+        window.loadDefaultDB = function() {
+            document.getElementById('dbUrl').value = 'sample.db';
+            loadDatabase();
+        };
+
+        // Initialize on page load and auto-load sample database
+        async function initPage() {
+            await initSQL();
+            // Auto-load the sample database
+            setTimeout(() => {
+                loadDatabase();
+            }, 500);
+        }
+
+        initPage();
     </script>
 </body>
 </html>
