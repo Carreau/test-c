@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Interactive Object Graph</title>
+<style>
+  :root {
+    --bg: #1e1e2e;
+    --surface: #282838;
+    --border: #3e3e5e;
+    --text: #cdd6f4;
+    --text-dim: #6c7086;
+    --accent: #89b4fa;
+    --accent2: #f38ba8;
+    --green: #a6e3a1;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg); color: var(--text);
+    overflow: hidden; height: 100vh; display: flex; flex-direction: column;
+  }
+
+  /* ── toolbar ────────────────────────────────────── */
+  #toolbar {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 12px; background: var(--surface);
+    border-bottom: 1px solid var(--border); flex-shrink: 0;
+    flex-wrap: wrap;
+  }
+  #toolbar input[type=text] {
+    background: var(--bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: 4px;
+    padding: 4px 8px; font-size: 13px; width: 180px;
+  }
+  #toolbar button, #toolbar select {
+    background: var(--bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: 4px;
+    padding: 4px 10px; font-size: 13px; cursor: pointer;
+  }
+  #toolbar button:hover { border-color: var(--accent); color: var(--accent); }
+  #toolbar .sep { width: 1px; height: 24px; background: var(--border); }
+  #toolbar label { font-size: 13px; color: var(--text-dim); }
+  #stats { margin-left: auto; font-size: 12px; color: var(--text-dim); }
+
+  /* ── type legend ────────────────────────────────── */
+  #legend-panel {
+    position: absolute; top: 52px; right: 12px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 6px; padding: 8px 10px; z-index: 10;
+    max-height: 60vh; overflow-y: auto; min-width: 160px;
+    font-size: 12px;
+  }
+  #legend-panel.hidden { display: none; }
+  .legend-row {
+    display: flex; align-items: center; gap: 6px; padding: 2px 0;
+    cursor: pointer; user-select: none;
+  }
+  .legend-row:hover { color: var(--accent); }
+  .legend-row.dimmed { opacity: 0.3; }
+  .legend-swatch {
+    width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0;
+  }
+
+  /* ── tooltip ────────────────────────────────────── */
+  #tooltip {
+    position: absolute; pointer-events: none;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 6px; padding: 8px 12px; font-size: 12px;
+    max-width: 400px; word-break: break-all;
+    box-shadow: 0 4px 12px rgba(0,0,0,.4);
+    display: none; z-index: 20;
+  }
+  #tooltip .tt-type { color: var(--accent); font-weight: 600; }
+  #tooltip .tt-label { color: var(--text); margin-top: 2px; }
+  #tooltip .tt-depth { color: var(--text-dim); margin-top: 2px; }
+
+  /* ── context menu ───────────────────────────────── */
+  #ctx-menu {
+    position: absolute; display: none; z-index: 30;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 6px; padding: 4px 0; min-width: 160px;
+    box-shadow: 0 4px 12px rgba(0,0,0,.5);
+  }
+  #ctx-menu div {
+    padding: 6px 14px; font-size: 13px; cursor: pointer;
+  }
+  #ctx-menu div:hover { background: var(--border); color: var(--accent); }
+
+  /* ── canvas ─────────────────────────────────────── */
+  #graph-container { flex: 1; position: relative; }
+  svg { width: 100%; height: 100%; }
+  .link { stroke: #585880; stroke-width: 1.2; fill: none; }
+  .link.dimmed { stroke-opacity: 0.08; }
+  .node circle { stroke-width: 2; cursor: pointer; }
+  .node text {
+    font-size: 11px; fill: var(--text); pointer-events: none;
+    text-shadow: 0 0 4px var(--bg), 0 0 4px var(--bg);
+  }
+  .node.root circle { stroke-width: 3; }
+  .node.collapsed circle { stroke-dasharray: 4 2; }
+  .node.dimmed { opacity: 0.08; }
+  .link-arrow { fill: #585880; }
+  .link-arrow.dimmed { opacity: 0.08; }
+
+  /* ── help overlay ───────────────────────────────── */
+  #help-overlay {
+    position: absolute; inset: 0; z-index: 50;
+    background: rgba(0,0,0,.6); display: flex;
+    align-items: center; justify-content: center;
+  }
+  #help-overlay.hidden { display: none; }
+  #help-box {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 24px 32px; max-width: 480px;
+    font-size: 14px; line-height: 1.7;
+  }
+  #help-box h2 { color: var(--accent); margin-bottom: 12px; }
+  #help-box kbd {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 3px; padding: 1px 5px; font-size: 12px;
+  }
+</style>
+</head>
+<body>
+
+<!-- toolbar -->
+<div id="toolbar">
+  <input type="text" id="search" placeholder="Filter by type or label…" title="Search nodes">
+  <button id="btn-reset-filter" title="Clear search">&#x2715;</button>
+  <div class="sep"></div>
+  <button id="btn-expand-all">Expand all</button>
+  <button id="btn-collapse-depth">Collapse depth &gt;</button>
+  <select id="sel-depth"></select>
+  <div class="sep"></div>
+  <button id="btn-unhide">Unhide all</button>
+  <button id="btn-legend">Legend</button>
+  <button id="btn-help">?</button>
+  <span id="stats"></span>
+</div>
+
+<div id="graph-container">
+  <svg id="svg"></svg>
+  <div id="legend-panel" class="hidden"></div>
+  <div id="tooltip"></div>
+  <div id="ctx-menu"></div>
+</div>
+
+<!-- help overlay -->
+<div id="help-overlay" class="hidden">
+  <div id="help-box">
+    <h2>Interactive objgraph</h2>
+    <p><kbd>Scroll</kbd> Zoom &nbsp; <kbd>Drag canvas</kbd> Pan</p>
+    <p><kbd>Click node</kbd> Highlight neighbourhood</p>
+    <p><kbd>Double-click</kbd> Collapse / expand children</p>
+    <p><kbd>Right-click node</kbd> Context menu (hide, collapse, pin …)</p>
+    <p><kbd>Esc</kbd> Clear selection &amp; close menus</p>
+    <p><b>Toolbar:</b> search filters nodes by type or label.
+       Legend toggles type visibility. Collapse depth hides subtrees.</p>
+    <p style="margin-top:12px;color:var(--text-dim)">Click anywhere to close.</p>
+  </div>
+</div>
+
+<script>
+/* __GRAPH_DATA_PLACEHOLDER__ */
+</script>
+<script>
+"use strict";
+
+// ── data & config ─────────────────────────────────────────────────────
+const data = window.__GRAPH_DATA__ || {meta:{}, nodes:[], edges:[]};
+const NODES = data.nodes.map(n => ({...n, collapsed: false, hidden: false, pinned: false}));
+const EDGES = data.edges.map(e => ({...e}));
+const nodeMap = Object.create(null);
+NODES.forEach(n => { nodeMap[n.id] = n; });
+
+// resolve edge source/target to node objects
+EDGES.forEach(e => {
+  if (typeof e.source === "string") e.source = nodeMap[e.source];
+  if (typeof e.target === "string") e.target = nodeMap[e.target];
+});
+
+// ── colour palette ────────────────────────────────────────────────────
+const TYPE_COLOURS = {};
+const PALETTE = [
+  "#89b4fa","#f38ba8","#a6e3a1","#fab387","#cba6f7",
+  "#f9e2af","#94e2d5","#eba0ac","#89dceb","#b4befe",
+  "#f2cdcd","#74c7ec","#f5c2e7","#bac2de","#a6adc8",
+];
+let _ci = 0;
+function typeColour(t) {
+  if (!TYPE_COLOURS[t]) TYPE_COLOURS[t] = PALETTE[_ci++ % PALETTE.length];
+  return TYPE_COLOURS[t];
+}
+// pre-assign
+NODES.forEach(n => typeColour(n.type));
+
+// ── svg setup (manual, no d3 dependency) ──────────────────────────────
+const svgEl = document.getElementById("svg");
+const NS = "http://www.w3.org/2000/svg";
+
+// We'll build our own minimal force layout to avoid CDN dependencies.
+// Groups for layering
+const gRoot = createSvgEl("g", {id: "g-root"});
+svgEl.appendChild(gRoot);
+const gLinks = createSvgEl("g", {id: "g-links"});
+const gNodes = createSvgEl("g", {id: "g-nodes"});
+gRoot.appendChild(gLinks);
+gRoot.appendChild(gNodes);
+
+// defs for arrowhead
+const defs = createSvgEl("defs");
+svgEl.appendChild(defs);
+const marker = createSvgEl("marker", {
+  id: "arrow", viewBox: "0 0 10 10", refX: "20", refY: "5",
+  markerWidth: "6", markerHeight: "6", orient: "auto-start-reverse"
+});
+marker.appendChild(createSvgEl("path", {d: "M0,0 L10,5 L0,10 z", fill: "#585880"}));
+defs.appendChild(marker);
+
+function createSvgEl(tag, attrs) {
+  const el = document.createElementNS(NS, tag);
+  if (attrs) Object.entries(attrs).forEach(([k,v]) => el.setAttribute(k, v));
+  return el;
+}
+
+// ── minimal force simulation ──────────────────────────────────────────
+// Initialize positions
+const W = svgEl.clientWidth || 900;
+const H = svgEl.clientHeight || 600;
+NODES.forEach((n, i) => {
+  const angle = (i / NODES.length) * Math.PI * 2;
+  const r = 100 + n.depth * 80;
+  n.x = W / 2 + r * Math.cos(angle);
+  n.y = H / 2 + r * Math.sin(angle);
+  n.vx = 0; n.vy = 0;
+});
+
+// Build adjacency for quick lookup
+const adjOut = Object.create(null);  // source -> [target ids]
+const adjIn = Object.create(null);   // target -> [source ids]
+EDGES.forEach(e => {
+  const sid = e.source.id, tid = e.target.id;
+  (adjOut[sid] || (adjOut[sid] = [])).push(tid);
+  (adjIn[tid] || (adjIn[tid] = [])).push(sid);
+});
+
+function neighbours(nid) {
+  const s = new Set();
+  (adjOut[nid] || []).forEach(x => s.add(x));
+  (adjIn[nid] || []).forEach(x => s.add(x));
+  return s;
+}
+
+function descendants(nid, visited) {
+  visited = visited || new Set();
+  if (visited.has(nid)) return visited;
+  visited.add(nid);
+  (adjOut[nid] || []).forEach(tid => descendants(tid, visited));
+  return visited;
+}
+
+const SIM = {
+  alpha: 1.0,
+  alphaDecay: 0.01,
+  alphaMin: 0.001,
+  running: true,
+};
+
+function simTick() {
+  const vis = NODES.filter(n => !n.hidden);
+  const visSet = new Set(vis.map(n => n.id));
+
+  // Repulsion (Barnes-Hut would be better for large graphs, but this is fine for <500 nodes)
+  const repK = 4000;
+  for (let i = 0; i < vis.length; i++) {
+    for (let j = i + 1; j < vis.length; j++) {
+      const a = vis[i], b = vis[j];
+      let dx = b.x - a.x, dy = b.y - a.y;
+      let d2 = dx * dx + dy * dy;
+      if (d2 < 1) d2 = 1;
+      const f = repK / d2;
+      const fx = dx / Math.sqrt(d2) * f * SIM.alpha;
+      const fy = dy / Math.sqrt(d2) * f * SIM.alpha;
+      a.vx -= fx; a.vy -= fy;
+      b.vx += fx; b.vy += fy;
+    }
+  }
+
+  // Attraction along edges
+  const attK = 0.05;
+  const targetLen = 100;
+  EDGES.forEach(e => {
+    if (!visSet.has(e.source.id) || !visSet.has(e.target.id)) return;
+    const s = e.source, t = e.target;
+    let dx = t.x - s.x, dy = t.y - s.y;
+    let d = Math.sqrt(dx * dx + dy * dy) || 1;
+    const f = (d - targetLen) * attK * SIM.alpha;
+    const fx = dx / d * f, fy = dy / d * f;
+    s.vx += fx; s.vy += fy;
+    t.vx -= fx; t.vy -= fy;
+  });
+
+  // Center gravity
+  const cx = W / 2, cy = H / 2;
+  vis.forEach(n => {
+    n.vx += (cx - n.x) * 0.001 * SIM.alpha;
+    n.vy += (cy - n.y) * 0.001 * SIM.alpha;
+  });
+
+  // Integrate
+  const damping = 0.6;
+  vis.forEach(n => {
+    if (n.pinned || n._dragging) { n.vx = 0; n.vy = 0; return; }
+    n.vx *= damping; n.vy *= damping;
+    n.x += n.vx; n.y += n.vy;
+  });
+
+  SIM.alpha *= (1 - SIM.alphaDecay);
+  if (SIM.alpha < SIM.alphaMin) SIM.running = false;
+}
+
+function reheat(a) { SIM.alpha = a || 0.3; SIM.running = true; }
+
+// ── rendering ─────────────────────────────────────────────────────────
+const linkEls = [];
+const nodeGEls = [];
+
+function buildDOM() {
+  // clear
+  gLinks.innerHTML = "";
+  gNodes.innerHTML = "";
+  linkEls.length = 0;
+  nodeGEls.length = 0;
+
+  EDGES.forEach(e => {
+    const line = createSvgEl("line", {
+      class: "link", "marker-end": "url(#arrow)"
+    });
+    line.__edge = e;
+    gLinks.appendChild(line);
+    linkEls.push(line);
+  });
+
+  NODES.forEach(n => {
+    const g = createSvgEl("g", {class: "node" + (n.is_root ? " root" : "")});
+    const r = n.is_root ? 10 : 7;
+    const circle = createSvgEl("circle", {
+      r, fill: typeColour(n.type), stroke: typeColour(n.type), "fill-opacity": "0.25"
+    });
+    g.appendChild(circle);
+    const text = createSvgEl("text", {dx: r + 4, dy: 4});
+    text.textContent = n.type;
+    g.appendChild(text);
+    g.__node = n;
+    n.__el = g;
+    gNodes.appendChild(g);
+    nodeGEls.push(g);
+
+    // events
+    g.addEventListener("mouseenter", () => showTooltip(n));
+    g.addEventListener("mouseleave", hideTooltip);
+    g.addEventListener("click", (ev) => { ev.stopPropagation(); selectNode(n); });
+    g.addEventListener("dblclick", (ev) => { ev.stopPropagation(); toggleCollapse(n); });
+    g.addEventListener("contextmenu", (ev) => { ev.preventDefault(); ev.stopPropagation(); showCtx(ev, n); });
+    g.addEventListener("mousedown", (ev) => startDrag(ev, n));
+  });
+}
+
+function renderFrame() {
+  const hiddenIds = computeHidden();
+
+  NODES.forEach(n => {
+    const g = n.__el;
+    if (!g) return;
+    if (hiddenIds.has(n.id)) {
+      g.setAttribute("display", "none");
+    } else {
+      g.removeAttribute("display");
+      g.setAttribute("transform", `translate(${n.x},${n.y})`);
+      // collapsed style
+      if (n.collapsed) g.classList.add("collapsed");
+      else g.classList.remove("collapsed");
+    }
+    // dim state
+    if (n._dimmed) g.classList.add("dimmed");
+    else g.classList.remove("dimmed");
+  });
+
+  linkEls.forEach(el => {
+    const e = el.__edge;
+    if (hiddenIds.has(e.source.id) || hiddenIds.has(e.target.id)) {
+      el.setAttribute("display", "none");
+    } else {
+      el.removeAttribute("display");
+      el.setAttribute("x1", e.source.x);
+      el.setAttribute("y1", e.source.y);
+      el.setAttribute("x2", e.target.x);
+      el.setAttribute("y2", e.target.y);
+    }
+    if (e.source._dimmed || e.target._dimmed) el.classList.add("dimmed");
+    else el.classList.remove("dimmed");
+  });
+
+  updateStats(hiddenIds);
+}
+
+function computeHidden() {
+  const hidden = new Set();
+  // manually hidden
+  NODES.forEach(n => { if (n.hidden) hidden.add(n.id); });
+  // collapsed: hide descendants
+  NODES.forEach(n => {
+    if (n.collapsed && !hidden.has(n.id)) {
+      const desc = descendants(n.id);
+      desc.delete(n.id);
+      desc.forEach(d => hidden.add(d));
+    }
+  });
+  // type filter
+  hiddenTypes.forEach(t => {
+    NODES.forEach(n => { if (n.type === t) hidden.add(n.id); });
+  });
+  return hidden;
+}
+
+// ── animation loop ────────────────────────────────────────────────────
+function loop() {
+  if (SIM.running) {
+    simTick();
+  }
+  renderFrame();
+  requestAnimationFrame(loop);
+}
+
+// ── zoom & pan ────────────────────────────────────────────────────────
+let transform = {x: 0, y: 0, k: 1};
+
+function applyTransform() {
+  gRoot.setAttribute("transform",
+    `translate(${transform.x},${transform.y}) scale(${transform.k})`);
+}
+
+svgEl.addEventListener("wheel", (ev) => {
+  ev.preventDefault();
+  const factor = ev.deltaY > 0 ? 0.9 : 1.1;
+  const rect = svgEl.getBoundingClientRect();
+  const mx = ev.clientX - rect.left;
+  const my = ev.clientY - rect.top;
+  transform.x = mx - (mx - transform.x) * factor;
+  transform.y = my - (my - transform.y) * factor;
+  transform.k *= factor;
+  applyTransform();
+}, {passive: false});
+
+let _pan = null;
+svgEl.addEventListener("mousedown", (ev) => {
+  if (ev.button !== 0) return;
+  if (ev.target.closest(".node")) return;
+  _pan = {sx: ev.clientX, sy: ev.clientY, ox: transform.x, oy: transform.y};
+  hideCtx();
+});
+window.addEventListener("mousemove", (ev) => {
+  if (_pan) {
+    transform.x = _pan.ox + (ev.clientX - _pan.sx);
+    transform.y = _pan.oy + (ev.clientY - _pan.sy);
+    applyTransform();
+  }
+  if (_drag) {
+    const rect = svgEl.getBoundingClientRect();
+    _drag.node.x = (ev.clientX - rect.left - transform.x) / transform.k;
+    _drag.node.y = (ev.clientY - rect.top - transform.y) / transform.k;
+  }
+});
+window.addEventListener("mouseup", () => {
+  _pan = null;
+  if (_drag) { _drag.node._dragging = false; _drag = null; reheat(0.1); }
+});
+
+// ── node drag ─────────────────────────────────────────────────────────
+let _drag = null;
+function startDrag(ev, n) {
+  if (ev.button !== 0) return;
+  ev.stopPropagation();
+  n._dragging = true;
+  _drag = {node: n};
+  reheat(0.1);
+}
+
+// ── selection / highlight ─────────────────────────────────────────────
+let selectedNode = null;
+
+function selectNode(n) {
+  if (selectedNode === n) { clearSelection(); return; }
+  selectedNode = n;
+  const nb = neighbours(n.id);
+  nb.add(n.id);
+  NODES.forEach(nd => { nd._dimmed = !nb.has(nd.id); });
+}
+
+function clearSelection() {
+  selectedNode = null;
+  NODES.forEach(n => { n._dimmed = false; });
+}
+
+svgEl.addEventListener("click", (ev) => {
+  if (!ev.target.closest(".node")) clearSelection();
+});
+
+// ── collapse ──────────────────────────────────────────────────────────
+function toggleCollapse(n) {
+  n.collapsed = !n.collapsed;
+  reheat(0.2);
+}
+
+// ── tooltip ───────────────────────────────────────────────────────────
+const tooltipEl = document.getElementById("tooltip");
+function showTooltip(n) {
+  tooltipEl.innerHTML =
+    `<div class="tt-type">${esc(n.type)}</div>` +
+    `<div class="tt-label">${esc(n.label)}</div>` +
+    `<div class="tt-depth">depth ${n.depth}${n.collapsed ? " (collapsed)" : ""}${n.pinned ? " (pinned)" : ""}</div>`;
+  tooltipEl.style.display = "block";
+  const move = (ev) => {
+    tooltipEl.style.left = (ev.clientX + 14) + "px";
+    tooltipEl.style.top = (ev.clientY + 14) + "px";
+  };
+  n.__el.addEventListener("mousemove", move);
+  n.__ttmove = move;
+}
+function hideTooltip() {
+  tooltipEl.style.display = "none";
+  NODES.forEach(n => {
+    if (n.__ttmove && n.__el) {
+      n.__el.removeEventListener("mousemove", n.__ttmove);
+      n.__ttmove = null;
+    }
+  });
+}
+
+// ── context menu ──────────────────────────────────────────────────────
+const ctxEl = document.getElementById("ctx-menu");
+let ctxNode = null;
+
+function showCtx(ev, n) {
+  ctxNode = n;
+  ctxEl.innerHTML = "";
+  const items = [
+    [n.collapsed ? "Expand" : "Collapse children", () => toggleCollapse(n)],
+    [n.hidden ? "Show" : "Hide node", () => { n.hidden = !n.hidden; reheat(0.1); }],
+    [n.pinned ? "Unpin" : "Pin position", () => { n.pinned = !n.pinned; }],
+    [`Hide all "${n.type}"`, () => { hiddenTypes.add(n.type); buildLegend(); reheat(0.1); }],
+    ["Focus subtree", () => focusSubtree(n)],
+  ];
+  items.forEach(([label, fn]) => {
+    const d = document.createElement("div");
+    d.textContent = label;
+    d.addEventListener("click", () => { fn(); hideCtx(); });
+    ctxEl.appendChild(d);
+  });
+  ctxEl.style.display = "block";
+  ctxEl.style.left = ev.clientX + "px";
+  ctxEl.style.top = ev.clientY + "px";
+}
+
+function hideCtx() { ctxEl.style.display = "none"; ctxNode = null; }
+document.addEventListener("click", hideCtx);
+document.addEventListener("contextmenu", (ev) => {
+  if (!ev.target.closest(".node")) hideCtx();
+});
+
+function focusSubtree(n) {
+  const keep = descendants(n.id);
+  NODES.forEach(nd => { nd.hidden = !keep.has(nd.id); });
+  reheat(0.3);
+}
+
+// ── type legend ───────────────────────────────────────────────────────
+const hiddenTypes = new Set();
+const legendEl = document.getElementById("legend-panel");
+
+function buildLegend() {
+  const types = [...new Set(NODES.map(n => n.type))].sort();
+  legendEl.innerHTML = "<strong>Types</strong>";
+  types.forEach(t => {
+    const row = document.createElement("div");
+    row.className = "legend-row" + (hiddenTypes.has(t) ? " dimmed" : "");
+    row.innerHTML = `<span class="legend-swatch" style="background:${typeColour(t)}"></span>${esc(t)}`;
+    row.addEventListener("click", () => {
+      if (hiddenTypes.has(t)) hiddenTypes.delete(t); else hiddenTypes.add(t);
+      row.classList.toggle("dimmed");
+      reheat(0.1);
+    });
+    legendEl.appendChild(row);
+  });
+}
+
+document.getElementById("btn-legend").addEventListener("click", () => {
+  legendEl.classList.toggle("hidden");
+});
+
+// ── search / filter ───────────────────────────────────────────────────
+const searchInput = document.getElementById("search");
+searchInput.addEventListener("input", () => {
+  const q = searchInput.value.toLowerCase().trim();
+  if (!q) { NODES.forEach(n => { n._dimmed = false; }); return; }
+  NODES.forEach(n => {
+    const match = n.type.toLowerCase().includes(q) || n.label.toLowerCase().includes(q);
+    n._dimmed = !match;
+  });
+});
+document.getElementById("btn-reset-filter").addEventListener("click", () => {
+  searchInput.value = "";
+  NODES.forEach(n => { n._dimmed = false; });
+  clearSelection();
+});
+
+// ── depth collapse ────────────────────────────────────────────────────
+const selDepth = document.getElementById("sel-depth");
+const maxDepth = Math.max(...NODES.map(n => n.depth), 0);
+for (let d = 0; d <= maxDepth; d++) {
+  const o = document.createElement("option"); o.value = d; o.textContent = d;
+  selDepth.appendChild(o);
+}
+selDepth.value = maxDepth;
+document.getElementById("btn-collapse-depth").addEventListener("click", () => {
+  const d = parseInt(selDepth.value);
+  NODES.forEach(n => { n.collapsed = (n.depth >= d); });
+  reheat(0.2);
+});
+
+// ── expand / unhide all ───────────────────────────────────────────────
+document.getElementById("btn-expand-all").addEventListener("click", () => {
+  NODES.forEach(n => { n.collapsed = false; });
+  reheat(0.2);
+});
+document.getElementById("btn-unhide").addEventListener("click", () => {
+  NODES.forEach(n => { n.hidden = false; });
+  hiddenTypes.clear();
+  buildLegend();
+  reheat(0.3);
+});
+
+// ── help ──────────────────────────────────────────────────────────────
+const helpEl = document.getElementById("help-overlay");
+document.getElementById("btn-help").addEventListener("click", () => {
+  helpEl.classList.toggle("hidden");
+});
+helpEl.addEventListener("click", () => helpEl.classList.add("hidden"));
+
+// ── keyboard ──────────────────────────────────────────────────────────
+document.addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape") {
+    clearSelection(); hideCtx(); helpEl.classList.add("hidden");
+  }
+});
+
+// ── stats ─────────────────────────────────────────────────────────────
+function updateStats(hiddenIds) {
+  const vis = NODES.length - hiddenIds.size;
+  document.getElementById("stats").textContent =
+    `${vis}/${NODES.length} nodes · ${EDGES.length} edges`;
+}
+
+// ── util ──────────────────────────────────────────────────────────────
+function esc(s) {
+  const d = document.createElement("div"); d.textContent = s; return d.innerHTML;
+}
+
+// ── JSON file load (for standalone use without Python) ────────────────
+function loadJSON(input) {
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    try {
+      const d = JSON.parse(ev.target.result);
+      window.__GRAPH_DATA__ = d;
+      location.reload();
+    } catch(e) { alert("Invalid JSON: " + e.message); }
+  };
+  reader.readAsText(input.files[0]);
+}
+
+// ── boot ──────────────────────────────────────────────────────────────
+buildDOM();
+buildLegend();
+applyTransform();
+loop();
+
+// Show help on first load if the graph has data
+if (NODES.length === 0) {
+  document.getElementById("stats").textContent =
+    "No data loaded. Use objgraph_interactive.py to generate a graph.";
+}
+</script>
+</body>
+</html>
