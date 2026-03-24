@@ -1,4 +1,57 @@
-# SQLite Database Research Tool
+# Test-C Tools
+
+A collection of browser-based tools for research and debugging.
+
+## Interactive Object Graph Viewer
+
+An interactive alternative to Python's `objgraph` — instead of static SVG output,
+it generates an HTML/JS page where you can filter, hide, and collapse nodes.
+
+### Features
+- Force-directed graph layout (zero external dependencies)
+- **Search/filter** nodes by type name or repr
+- **Hide** individual nodes or entire types via the legend panel
+- **Collapse/expand** subtrees (double-click or depth threshold slider)
+- **Right-click context menu** — hide, pin position, collapse, focus subtree
+- **Zoom, pan, drag** nodes interactively
+- **Tooltip** with type, repr, and depth info
+
+### Quick Start
+
+```python
+import objgraph_interactive as oi
+
+# Show outgoing references from an object
+oi.show_refs(my_obj, max_depth=3)
+
+# Show incoming references (backrefs)
+oi.show_backrefs(my_obj, max_depth=3)
+
+# Save to file without opening browser
+oi.show_refs(my_obj, filename="graph.html", serve=False)
+
+# Run the built-in demo
+python objgraph_interactive.py
+```
+
+### Controls
+
+| Action | Effect |
+|--------|--------|
+| Scroll | Zoom |
+| Drag canvas | Pan |
+| Click node | Highlight neighbourhood |
+| Double-click node | Collapse/expand children |
+| Right-click node | Context menu (hide, pin, focus subtree) |
+| Esc | Clear selection |
+
+### Files
+- `objgraph_interactive.py` — Python module that walks `gc` references and embeds the graph as JSON into the HTML template
+- `interactive_objgraph.html` — standalone HTML/JS viewer template
+
+---
+
+## SQLite Database Research Tool
 
 A simple HTML/JavaScript tool for querying SQLite databases directly in the browser or via Cloudflare Workers.
 
